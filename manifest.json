@@ -1,0 +1,13 @@
+{
+  "name": "TaskFlow — Team Task Manager",
+  "short_name": "TaskFlow",
+  "description": "Assign tasks, track completion, and get reminded every 2 hours until done.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0B2545",
+  "theme_color": "#0B2545",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
