@@ -308,6 +308,10 @@ function wireAppScreen(){
     document.getElementById('reportModal').classList.add('hidden');
     document.getElementById('reportFile').value = '';
     document.getElementById('reportFileName').textContent = '';
+    document.getElementById('reportPhoto').value = '';
+    document.getElementById('reportPhotoName').textContent = '';
+    document.getElementById('reportPhotoPreview').classList.add('hidden');
+    document.getElementById('reportPhotoPreview').src = '';
     pendingDoneTaskId = null;
   });
   document.getElementById('confirmReport').addEventListener('click', submitCompletionReport);
@@ -315,6 +319,17 @@ function wireAppScreen(){
   function isExcelFile(file){
     const name = (file.name || '').toLowerCase();
     return name.endsWith('.xls') || name.endsWith('.xlsx');
+  }
+
+  function clearExcelSelection(){
+    document.getElementById('reportFile').value = '';
+    document.getElementById('reportFileName').innerHTML = '';
+  }
+  function clearPhotoSelection(){
+    document.getElementById('reportPhoto').value = '';
+    document.getElementById('reportPhotoName').innerHTML = '';
+    document.getElementById('reportPhotoPreview').classList.add('hidden');
+    document.getElementById('reportPhotoPreview').src = '';
   }
 
   function renderFileChip(){
@@ -328,14 +343,33 @@ function wireAppScreen(){
       nameBox.innerHTML = '';
       return;
     }
+    clearPhotoSelection(); // mutually exclusive — picking Excel clears any chosen photo
     nameBox.innerHTML = `<span class="file-chip">📎 ${escapeHtml(f.name)} (${(f.size/1024).toFixed(0)} KB) <button type="button" id="removeReportFile">✕</button></span>`;
-    document.getElementById('removeReportFile').addEventListener('click', () => {
-      fileInput.value = '';
+    document.getElementById('removeReportFile').addEventListener('click', clearExcelSelection);
+  }
+
+  function renderPhotoChip(){
+    const photoInput = document.getElementById('reportPhoto');
+    const nameBox = document.getElementById('reportPhotoName');
+    const preview = document.getElementById('reportPhotoPreview');
+    const f = photoInput.files && photoInput.files[0];
+    if (!f){ nameBox.innerHTML = ''; preview.classList.add('hidden'); return; }
+    if (!f.type || !f.type.startsWith('image/')){
+      alert('Only image files are allowed as a photo attachment.');
+      photoInput.value = '';
       nameBox.innerHTML = '';
-    });
+      return;
+    }
+    clearExcelSelection(); // mutually exclusive — picking a photo clears any chosen Excel file
+    nameBox.innerHTML = `<span class="file-chip">📷 ${escapeHtml(f.name)} (${(f.size/1024).toFixed(0)} KB) <button type="button" id="removeReportPhoto">✕</button></span>`;
+    document.getElementById('removeReportPhoto').addEventListener('click', clearPhotoSelection);
+    const reader = new FileReader();
+    reader.onload = (e) => { preview.src = e.target.result; preview.classList.remove('hidden'); };
+    reader.readAsDataURL(f);
   }
 
   document.getElementById('reportFile').addEventListener('change', renderFileChip);
+  document.getElementById('reportPhoto').addEventListener('change', renderPhotoChip);
 
   const dropzone = document.getElementById('reportDropzone');
   if (dropzone){
@@ -354,6 +388,27 @@ function wireAppScreen(){
         }
         document.getElementById('reportFile').files = dropped;
         renderFileChip();
+      }
+    });
+  }
+
+  const photoDropzone = document.getElementById('reportPhotoDropzone');
+  if (photoDropzone){
+    ['dragenter','dragover'].forEach(evt => photoDropzone.addEventListener(evt, (e) => {
+      e.preventDefault(); photoDropzone.classList.add('dragover');
+    }));
+    ['dragleave','drop'].forEach(evt => photoDropzone.addEventListener(evt, (e) => {
+      e.preventDefault(); photoDropzone.classList.remove('dragover');
+    }));
+    photoDropzone.addEventListener('drop', (e) => {
+      const dropped = e.dataTransfer.files;
+      if (dropped && dropped.length){
+        if (!dropped[0].type || !dropped[0].type.startsWith('image/')){
+          alert('Only image files are allowed as a photo attachment.');
+          return;
+        }
+        document.getElementById('reportPhoto').files = dropped;
+        renderPhotoChip();
       }
     });
   }
@@ -569,6 +624,10 @@ async function markDone(taskId){
   document.getElementById('reportText').value = '';
   document.getElementById('reportFile').value = '';
   document.getElementById('reportFileName').textContent = '';
+  document.getElementById('reportPhoto').value = '';
+  document.getElementById('reportPhotoName').textContent = '';
+  document.getElementById('reportPhotoPreview').classList.add('hidden');
+  document.getElementById('reportPhotoPreview').src = '';
   document.getElementById('reportModal').classList.remove('hidden');
 }
 
@@ -579,24 +638,30 @@ async function submitCompletionReport(){
   if (!report){ alert('Please write a short completion report before marking this done.'); return; }
 
   const fileInput = document.getElementById('reportFile');
-  const file = fileInput.files && fileInput.files[0];
+  const photoInput = document.getElementById('reportPhoto');
+  const excelFile = fileInput.files && fileInput.files[0];
+  const photoFile = photoInput.files && photoInput.files[0];
+  const file = excelFile || photoFile; // mutually exclusive — only one can be set at a time
   const confirmBtn = document.getElementById('confirmReport');
 
   let attachmentUrl = null;
   let attachmentName = null;
 
   if (file){
-    const nameLower = (file.name || '').toLowerCase();
-    if (!nameLower.endsWith('.xls') && !nameLower.endsWith('.xlsx')){
-      alert('Only Excel files (.xls or .xlsx) are allowed as attachments. Please choose a different file.');
-      return;
+    const isPhoto = !!photoFile;
+    if (!isPhoto){
+      const nameLower = (file.name || '').toLowerCase();
+      if (!nameLower.endsWith('.xls') && !nameLower.endsWith('.xlsx')){
+        alert('Only Excel files (.xls or .xlsx) are allowed as attachments. Please choose a different file.');
+        return;
+      }
     }
     confirmBtn.disabled = true;
     confirmBtn.textContent = 'Uploading…';
     const path = `${session.team}/${pendingDoneTaskId}-${Date.now()}-${file.name}`;
     const { error: uploadError } = await supabaseClient.storage
       .from(REPORT_ATTACHMENTS_BUCKET)
-      .upload(path, file, { upsert: false });
+      .upload(path, file, { upsert: false, contentType: file.type || undefined });
 
     if (uploadError){
       confirmBtn.disabled = false;

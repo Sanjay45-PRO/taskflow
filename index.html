@@ -953,6 +953,20 @@
         <input type="file" id="reportFile" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
       </div>
       <div id="reportFileName" style="font-size:12.5px;color:var(--text-muted);margin-top:6px;"></div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0;">
+        <div style="flex:1;height:1px;background:var(--border);"></div>
+        <span style="font-size:11.5px;font-weight:700;color:var(--text-muted);">OR</span>
+        <div style="flex:1;height:1px;background:var(--border);"></div>
+      </div>
+
+      <div class="dropzone" id="reportPhotoDropzone">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+        <p>Drag a photo here, or click to browse (or take one on mobile)</p>
+        <input type="file" id="reportPhoto" accept="image/*" capture="environment" />
+      </div>
+      <div id="reportPhotoName" style="font-size:12.5px;color:var(--text-muted);margin-top:6px;"></div>
+      <img id="reportPhotoPreview" class="hidden" style="max-width:100%;max-height:160px;border-radius:8px;margin-top:8px;object-fit:cover;" />
     </div>
     <div class="modal-actions">
       <button class="btn-sm" id="cancelReport">Cancel</button>
