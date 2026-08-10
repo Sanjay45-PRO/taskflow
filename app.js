@@ -1007,6 +1007,10 @@ async function loadLiveMap(){
 let claimFilter = 'pending';
 
 async function loadClaims(){
+  // Fetch ALL claims for the totals summary (independent of the current filter)
+  const { data: allClaims } = await supabaseClient.from('expense_claims').select('*').eq('team', session.team);
+  renderClaimTotals(allClaims || []);
+
   let query = supabaseClient.from('expense_claims').select('*').eq('team', session.team)
     .order('submitted_at', { ascending: false });
   if (claimFilter !== 'all') query = query.eq('status', claimFilter);
@@ -1018,14 +1022,21 @@ async function loadClaims(){
     return;
   }
   container.innerHTML = data.map(c => `
-    <div class="task-item">
-      <div>
+    <div class="task-item" style="align-items:flex-start;">
+      ${c.receipt_url ? `
+        <a href="${c.receipt_url}" target="_blank" rel="noopener" style="flex-shrink:0;margin-right:14px;">
+          <img src="${c.receipt_url}" alt="Receipt" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+          <div style="display:none;width:56px;height:56px;border-radius:8px;border:1px solid var(--border);align-items:center;justify-content:center;font-size:11px;color:var(--text-muted);text-align:center;">File</div>
+        </a>
+      ` : ''}
+      <div style="flex:1;">
         <div class="t-title">${escapeHtml(c.employee_name)} — ₹${Number(c.amount).toFixed(2)} <span style="font-weight:400;color:var(--text-muted);font-size:12.5px;text-transform:capitalize;">(${escapeHtml(c.category)})</span></div>
         <div class="t-meta">
           <span><i class="ti ti-calendar"></i> ${new Date(c.submitted_at).toLocaleDateString()}</span>
           ${c.note ? `<span>${escapeHtml(c.note)}</span>` : ''}
-          ${c.receipt_url ? `<a href="${c.receipt_url}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;">View receipt</a>` : ''}
+          ${c.receipt_url ? `<a href="${c.receipt_url}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;">View full receipt</a>` : `<span style="color:var(--text-muted);">No receipt attached</span>`}
         </div>
+        ${c.status === 'rejected' && c.rejection_reason ? `<div style="margin-top:6px;font-size:12.5px;color:var(--danger);background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;display:inline-block;"><i class="ti ti-message-circle"></i> ${escapeHtml(c.rejection_reason)}</div>` : ''}
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <span class="badge ${c.status === 'approved' ? 'done' : c.status === 'rejected' ? 'overdue' : 'progress'}">${c.status}</span>
@@ -1038,9 +1049,54 @@ async function loadClaims(){
   `).join('');
 }
 
+function renderClaimTotals(claims){
+  const el = document.getElementById('claimTotals');
+  if (!el) return;
+  if (!claims.length){ el.innerHTML = ''; return; }
+
+  const approved = claims.filter(c => c.status === 'approved');
+  const pending = claims.filter(c => c.status === 'pending');
+  const approvedTotal = approved.reduce((sum, c) => sum + Number(c.amount), 0);
+  const pendingTotal = pending.reduce((sum, c) => sum + Number(c.amount), 0);
+
+  const byPerson = {};
+  approved.forEach(c => { byPerson[c.employee_name] = (byPerson[c.employee_name] || 0) + Number(c.amount); });
+  const personRows = Object.entries(byPerson).sort((a, b) => b[1] - a[1]);
+
+  el.innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+      <div style="flex:1;min-width:140px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:12px 14px;">
+        <div style="font-size:11px;color:#166534;font-weight:600;">APPROVED TOTAL</div>
+        <div style="font-size:20px;font-weight:700;color:#166534;">₹${approvedTotal.toFixed(2)}</div>
+      </div>
+      <div style="flex:1;min-width:140px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:12px 14px;">
+        <div style="font-size:11px;color:#92400E;font-weight:600;">PENDING TOTAL</div>
+        <div style="font-size:20px;font-weight:700;color:#92400E;">₹${pendingTotal.toFixed(2)}</div>
+      </div>
+    </div>
+    ${personRows.length ? `
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">APPROVED BY EMPLOYEE</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+        ${personRows.map(([name, total]) => `
+          <span style="font-size:12.5px;background:#F1F5F9;padding:6px 12px;border-radius:20px;color:var(--text);">
+            ${escapeHtml(name)}: <b>₹${total.toFixed(2)}</b>
+          </span>
+        `).join('')}
+      </div>
+    ` : ''}
+  `;
+}
+
 async function reviewClaim(id, status){
+  let rejectionReason = null;
+  if (status === 'rejected'){
+    rejectionReason = prompt('Reason for rejecting this claim (shown to the employee):');
+    if (rejectionReason === null) return; // cancelled
+    if (!rejectionReason.trim()){ alert('Please enter a reason so the employee understands why.'); return; }
+  }
   await supabaseClient.from('expense_claims').update({
-    status, reviewed_at: new Date().toISOString(), reviewed_by: session.name
+    status, reviewed_at: new Date().toISOString(), reviewed_by: session.name,
+    rejection_reason: status === 'rejected' ? rejectionReason.trim() : null
   }).eq('id', id);
   loadClaims();
 }
