@@ -1011,6 +1011,11 @@ async function loadClaims(){
   const { data: allClaims } = await supabaseClient.from('expense_claims').select('*').eq('team', session.team);
   renderClaimTotals(allClaims || []);
 
+  const approvedByPerson = {};
+  (allClaims || []).filter(c => c.status === 'approved').forEach(c => {
+    approvedByPerson[c.employee_name] = (approvedByPerson[c.employee_name] || 0) + Number(c.amount);
+  });
+
   let query = supabaseClient.from('expense_claims').select('*').eq('team', session.team)
     .order('submitted_at', { ascending: false });
   if (claimFilter !== 'all') query = query.eq('status', claimFilter);
@@ -1021,32 +1026,41 @@ async function loadClaims(){
     container.innerHTML = '<div class="empty-state">No claims here.</div>';
     return;
   }
-  container.innerHTML = data.map(c => `
+  container.innerHTML = data.map(c => {
+    const personTotal = approvedByPerson[c.employee_name] || 0;
+    return `
     <div class="task-item" style="align-items:flex-start;">
       ${c.receipt_url ? `
         <a href="${c.receipt_url}" target="_blank" rel="noopener" style="flex-shrink:0;margin-right:14px;">
-          <img src="${c.receipt_url}" alt="Receipt" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-          <div style="display:none;width:56px;height:56px;border-radius:8px;border:1px solid var(--border);align-items:center;justify-content:center;font-size:11px;color:var(--text-muted);text-align:center;">File</div>
+          <img src="${c.receipt_url}" alt="Receipt" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border);" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+          <div style="display:none;width:72px;height:72px;border-radius:8px;border:1px solid var(--border);align-items:center;justify-content:center;font-size:11px;color:var(--text-muted);text-align:center;">File</div>
         </a>
-      ` : ''}
+      ` : `<div style="flex-shrink:0;margin-right:14px;width:72px;height:72px;border-radius:8px;border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:10.5px;color:var(--text-muted);text-align:center;padding:4px;">No receipt</div>`}
       <div style="flex:1;">
-        <div class="t-title">${escapeHtml(c.employee_name)} — ₹${Number(c.amount).toFixed(2)} <span style="font-weight:400;color:var(--text-muted);font-size:12.5px;text-transform:capitalize;">(${escapeHtml(c.category)})</span></div>
+        <div class="t-title">
+          ${escapeHtml(c.employee_name)} — ₹${Number(c.amount).toFixed(2)}
+          <span style="font-weight:400;color:var(--text-muted);font-size:12.5px;text-transform:capitalize;">(${escapeHtml(c.category)})</span>
+        </div>
+        <div style="font-size:12px;color:var(--success);font-weight:600;margin-top:2px;">
+          <i class="ti ti-report-money"></i> Total approved for ${escapeHtml(c.employee_name)}: ₹${personTotal.toFixed(2)}
+        </div>
         <div class="t-meta">
           <span><i class="ti ti-calendar"></i> ${new Date(c.submitted_at).toLocaleDateString()}</span>
           ${c.note ? `<span>${escapeHtml(c.note)}</span>` : ''}
-          ${c.receipt_url ? `<a href="${c.receipt_url}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;">View full receipt</a>` : `<span style="color:var(--text-muted);">No receipt attached</span>`}
         </div>
         ${c.status === 'rejected' && c.rejection_reason ? `<div style="margin-top:6px;font-size:12.5px;color:var(--danger);background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;display:inline-block;"><i class="ti ti-message-circle"></i> ${escapeHtml(c.rejection_reason)}</div>` : ''}
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
         <span class="badge ${c.status === 'approved' ? 'done' : c.status === 'rejected' ? 'overdue' : 'progress'}">${c.status}</span>
+        ${c.receipt_url ? `<a href="${c.receipt_url}" target="_blank" rel="noopener" class="btn-sm" style="text-decoration:none;text-align:center;">View</a>` : ''}
         ${c.status === 'pending' ? `
-          <button class="btn-sm btn-teal" onclick="reviewClaim('${c.id}','approved')">Approve</button>
           <button class="btn-sm" onclick="reviewClaim('${c.id}','rejected')">Reject</button>
+          <button class="btn-sm btn-teal" onclick="reviewClaim('${c.id}','approved')">Approve</button>
         ` : ''}
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function renderClaimTotals(claims){
