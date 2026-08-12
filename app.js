@@ -928,7 +928,7 @@ async function loadAttendance(){
   }).join('');
 }
 
-/* ---------------- Live Map (manager only) ---------------- */
+/* ---------------- Live Map (manager only) — free OpenStreetMap/Leaflet ---------------- */
 let liveMapInstance = null;
 const MAP_COLORS = ['#2563EB', '#DC2626', '#16A34A', '#F59E0B', '#7C3AED', '#0FA3B1', '#EC4899', '#64748B'];
 
@@ -940,11 +940,44 @@ function haversineKm(lat1, lon1, lat2, lon2){
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+function haversineMeters(lat1, lon1, lat2, lon2){
+  return haversineKm(lat1, lon1, lat2, lon2) * 1000;
+}
+
+// Groups consecutive GPS points that stay within a small radius (GPS jitter tolerance)
+// for at least `stopThresholdMin` minutes into a single "stop". Returns a cleaned point
+// list (jitter collapsed to one representative point per stop, so it doesn't get counted
+// as fake distance) plus the list of detected stops for display.
+function detectStops(pts, stopThresholdMin = 15, radiusMeters = 40){
+  const stops = [];
+  const cleaned = [];
+  let i = 0;
+  while (i < pts.length){
+    let j = i;
+    while (j + 1 < pts.length &&
+           haversineMeters(pts[i].latitude, pts[i].longitude, pts[j+1].latitude, pts[j+1].longitude) <= radiusMeters){
+      j++;
+    }
+    const cluster = pts.slice(i, j + 1);
+    const durationMin = (new Date(cluster[cluster.length - 1].recorded_at) - new Date(cluster[0].recorded_at)) / 60000;
+
+    if (durationMin >= stopThresholdMin && cluster.length > 1){
+      const avgLat = cluster.reduce((s, p) => s + p.latitude, 0) / cluster.length;
+      const avgLng = cluster.reduce((s, p) => s + p.longitude, 0) / cluster.length;
+      stops.push({ start: cluster[0].recorded_at, end: cluster[cluster.length - 1].recorded_at, durationMin, lat: avgLat, lng: avgLng });
+      cleaned.push({ latitude: avgLat, longitude: avgLng, recorded_at: cluster[0].recorded_at });
+    } else {
+      cluster.forEach(p => cleaned.push(p));
+    }
+    i = j + 1;
+  }
+  return { cleaned, stops };
+}
+
 // Snaps raw GPS points onto actual roads using OSRM's free public routing service.
 // Falls back to the raw straight-line points if the request fails or times out.
 async function snapToRoads(latlngs){
   if (latlngs.length < 2) return latlngs;
-  // OSRM's public demo server caps request size — trim to at most 100 waypoints, evenly spaced
   let sample = latlngs;
   if (sample.length > 100){
     const step = Math.ceil(sample.length / 100);
@@ -992,7 +1025,7 @@ async function loadLiveMap(){
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO', maxZoom: 19, subdomains: 'abcd'
     }).addTo(liveMapInstance);
   }
-  liveMapInstance.eachLayer(layer => { if (layer instanceof L.Polyline || layer instanceof L.CircleMarker) liveMapInstance.removeLayer(layer); });
+  liveMapInstance.eachLayer(layer => { if (layer instanceof L.Polyline || layer instanceof L.CircleMarker || layer instanceof L.Marker) liveMapInstance.removeLayer(layer); });
 
   if (!points || !points.length){
     legendEl.innerHTML = isToday ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--danger);"><span style="width:7px;height:7px;border-radius:50%;background:var(--danger);animation:pulseLive 1.5s infinite;"></span>LIVE · updates every 30s</span>` : '';
@@ -1017,19 +1050,26 @@ async function loadLiveMap(){
   const statRows = [];
   for (let i = 0; i < names.length; i++){
     const name = names[i];
-    const pts = byPerson[name];
+    const rawPts = byPerson[name];
+    const { cleaned: pts, stops } = detectStops(rawPts, 15, 40);
     const latlngs = pts.map(p => [p.latitude, p.longitude]);
     const color = MAP_COLORS[i % MAP_COLORS.length];
 
     const roadPath = await snapToRoads(latlngs);
     L.polyline(roadPath, { color, weight: 4, opacity: 0.8 }).addTo(liveMapInstance);
 
-    // Distinct start (green flag) and end (red flag) markers so the route direction is clear
     const startIcon = L.divIcon({ className: '', html: `<div style="width:16px;height:16px;border-radius:50%;background:#16A34A;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);"></div>`, iconSize: [16,16], iconAnchor: [8,8] });
     const endIcon = L.divIcon({ className: '', html: `<div style="width:16px;height:16px;border-radius:50%;background:#DC2626;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);"></div>`, iconSize: [16,16], iconAnchor: [8,8] });
     L.marker(latlngs[0], { icon: startIcon }).bindTooltip(`${name} — start`).addTo(liveMapInstance);
     if (latlngs.length > 1) L.marker(latlngs[latlngs.length - 1], { icon: endIcon }).bindTooltip(`${name} — latest`).addTo(liveMapInstance);
     allBounds.push(...latlngs);
+
+    // Stop markers — small orange dots wherever they stayed put for 15+ min
+    const timeFmtShort = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    stops.forEach(s => {
+      const stopIcon = L.divIcon({ className: '', html: `<div style="width:14px;height:14px;border-radius:4px;background:#F59E0B;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);"></div>`, iconSize: [14,14], iconAnchor: [7,7] });
+      L.marker([s.lat, s.lng], { icon: stopIcon }).bindTooltip(`${name} — stopped ${Math.round(s.durationMin)} min (${timeFmtShort(s.start)}–${timeFmtShort(s.end)})`).addTo(liveMapInstance);
+    });
 
     let distanceKm = 0;
     for (let j = 1; j < pts.length; j++){
@@ -1051,8 +1091,17 @@ async function loadLiveMap(){
             <span><i class="ti ti-login"></i> ${timeFmt(checkIn)}${att && att.check_out_at ? ` → ${timeFmt(checkOut)}` : ' (still checked in)'}</span>
             <span><i class="ti ti-route"></i> ${distanceKm.toFixed(1)} km total</span>
             <span><i class="ti ti-clock"></i> ${activeHrs.toFixed(1)} hrs</span>
-            <span><i class="ti ti-map-pin"></i> ${pts.length} points logged</span>
+            <span><i class="ti ti-map-pin"></i> ${rawPts.length} points logged</span>
           </div>
+          ${stops.length ? `
+            <div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">
+              ${stops.map(s => `
+                <div style="font-size:12px;color:#92400E;background:rgba(245,158,11,0.1);padding:4px 9px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;width:fit-content;">
+                  <i class="ti ti-square-rounded"></i> Stopped ${Math.round(s.durationMin)} min (${timeFmtShort(s.start)}–${timeFmtShort(s.end)})
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
         </div>
       </div>
     `);
