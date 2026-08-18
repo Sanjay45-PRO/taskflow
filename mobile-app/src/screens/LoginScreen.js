@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabaseClient';
 import { getDeviceId, getDeviceName, getPlatform, getAppVersion } from '../deviceId';
 
-const EDGE_FN_URL = 'https://yqdobywstnvakbcgkzqa.supabase.co/functions/v1/device-auth';
+const EDGE_FN_URL = 'https://yqdobywstnvakbcgkzqa.supabase.co/functions/v1/swift-service';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZG9ieXdzdG52YWtiY2drenFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMjQ1OTYsImV4cCI6MjEwMDkwMDU5Nn0.YqBlDlyeLmlujaxYiYPaQE9EVQWiRduE0EE7JRJEY1w';
 
 async function callDeviceAuth(payload) {
