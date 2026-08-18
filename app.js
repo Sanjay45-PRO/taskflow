@@ -184,7 +184,7 @@ async function enterApp(){
   if (session.role === 'manager') {
     loadUsageStats(); loadEmployeeOptions();
     wireNewManagerSections();
-    loadAttendance(); loadLiveMap(); loadClaims(); loadOnDuty();
+    loadAttendance(); loadLiveMap(); loadClaims(); loadOnDuty(); loadDevices();
   }
   if (session.role === 'it_support') { await loadTicketsOnce(); listenToTickets(); }
 }
@@ -1262,6 +1262,54 @@ async function reviewOnDuty(id, status){
     status, reviewed_at: new Date().toISOString(), reviewed_by: session.name
   }).eq('id', id);
   loadOnDuty();
+}
+
+async function loadDevices(){
+  const container = document.getElementById('devicesList');
+  const { data, error } = await supabaseClient.functions.invoke('device-auth', {
+    body: { action: 'list_devices', team: session.team },
+  });
+
+  if (error || !data || !data.devices){
+    container.innerHTML = '<div class="empty-state">Could not load devices.</div>';
+    return;
+  }
+  if (!data.devices.length){
+    container.innerHTML = '<div class="empty-state">No devices have registered yet.</div>';
+    return;
+  }
+
+  container.innerHTML = data.devices.map(d => {
+    const status = d.revoked_at ? 'Revoked' : d.is_approved ? 'Approved' : 'Pending verification';
+    const badgeClass = d.revoked_at ? 'overdue' : d.is_approved ? 'done' : 'progress';
+    return `
+    <div class="task-item">
+      <div>
+        <div class="t-title">${escapeHtml(d.employee_name)} — ${escapeHtml(d.device_name || 'Unknown device')}</div>
+        <div class="t-meta">
+          <span>${escapeHtml(d.platform || '')}</span>
+          <span>First seen: ${new Date(d.first_seen_at).toLocaleDateString()}</span>
+          <span>Last active: ${new Date(d.last_seen_at).toLocaleString()}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="badge ${badgeClass}">${status}</span>
+        ${(!d.revoked_at) ? `<button class="btn-sm" onclick="revokeDevice('${d.id}','${escapeHtml(d.employee_name)}','${escapeHtml(d.device_name || 'this device')}')">Revoke</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function revokeDevice(deviceRowId, employeeName, deviceName){
+  if (!confirm(`Revoke "${deviceName}" for ${employeeName}? They will need a new verification code to use TaskFlow on that phone again.`)) return;
+  const { data, error } = await supabaseClient.functions.invoke('device-auth', {
+    body: { action: 'revoke_device', team: session.team, device_row_id: deviceRowId },
+  });
+  if (error || !data || !data.ok){
+    alert('Could not revoke this device. Please try again.');
+    return;
+  }
+  loadDevices();
 }
 
 function wireNewManagerSections(){
