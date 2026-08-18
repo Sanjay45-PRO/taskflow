@@ -1266,7 +1266,7 @@ async function reviewOnDuty(id, status){
 
 async function loadDevices(){
   const container = document.getElementById('devicesList');
-  const { data, error } = await supabaseClient.functions.invoke('device-auth', {
+  const { data, error } = await supabaseClient.functions.invoke('swift-service', {
     body: { action: 'list_devices', team: session.team },
   });
 
