@@ -171,53 +171,68 @@ export default function HomeScreen({ navigation }) {
 
     setBusy(true);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Location access is required to check in.');
-        setBusy(false);
-        return;
-      }
+      await withTimeout((async () => {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission needed', 'Location access is required to check in.');
+          throw new Error('permission_denied_silent');
+        }
 
-      const servicesOn = await ensureLocationServicesOn();
-      if (!servicesOn) { setBusy(false); return; }
+        const servicesOn = await ensureLocationServicesOn();
+        if (!servicesOn) throw new Error('services_off_silent');
 
-      const loc = await getPositionSafely();
-      const todayStr = new Date().toISOString().slice(0, 10);
+        const loc = await getPositionSafely();
+        const todayStr = new Date().toISOString().slice(0, 10);
 
-      const { error } = await supabase.from('attendance').upsert({
-        team: session.team,
-        employee_name: session.name,
-        work_date: todayStr,
-        check_in_at: new Date().toISOString(),
-        check_in_lat: loc.coords.latitude,
-        check_in_lng: loc.coords.longitude,
-      }, { onConflict: 'team,employee_name,work_date' });
+        const { error } = await supabase.from('attendance').upsert({
+          team: session.team,
+          employee_name: session.name,
+          work_date: todayStr,
+          check_in_at: new Date().toISOString(),
+          check_in_lat: loc.coords.latitude,
+          check_in_lng: loc.coords.longitude,
+        }, { onConflict: 'team,employee_name,work_date' });
 
-      if (error) { Alert.alert('Error', 'Could not check in. Try again.'); setBusy(false); return; }
+        if (error) { Alert.alert('Error', 'Could not check in. Try again.'); throw new Error('db_error_silent'); }
 
-      await startTracking();
-      await load();
+        // Don't let a stuck background-permission dialog freeze check-in forever —
+        // if it takes too long, check-in still succeeds; tracking just won't be on
+        // until they reopen the app (which retries automatically).
+        try {
+          await withTimeout(startTracking(), 15000);
+        } catch (trackErr) {
+          console.error('Could not start tracking (check-in still succeeded)', trackErr);
+        }
 
-      // ===== EDIT THE TEXT BELOW — this is the one-time battery popup =====
-      const alreadyPrompted = await AsyncStorage.getItem('battery-exemption-prompted');
-      if (!alreadyPrompted) {
-        await AsyncStorage.setItem('battery-exemption-prompted', '1');
-        setTimeout(() => {
-          Alert.alert(
-            'Turn off battery restrictions',                                     // <-- TITLE goes here
-            "We track your location while you're checked in, so your manager can see your work progress. Turning off battery restrictions for TaskFlow keeps this tracking running smoothly all day.", // <-- BODY goes here
-            [
-              { text: 'Not now', style: 'cancel' },                              // <-- DECLINE button text
-              { text: 'Turn On', onPress: requestBatteryExemption },             // <-- ACCEPT button text
-            ]
-          );
-        }, 800);
-      }
-      // ===== END editable section =====
+        await load();
 
-      Alert.alert('Checked in', "You're checked in — location tracking is now on for the day.");
+        // ===== EDIT THE TEXT BELOW — this is the one-time battery popup =====
+        const alreadyPrompted = await AsyncStorage.getItem('battery-exemption-prompted');
+        if (!alreadyPrompted) {
+          await AsyncStorage.setItem('battery-exemption-prompted', '1');
+          setTimeout(() => {
+            Alert.alert(
+              'Turn off battery restrictions',                                     // <-- TITLE goes here
+              "We track your location while you're checked in, so your manager can see your work progress. Turning off battery restrictions for TaskFlow keeps this tracking running smoothly all day.", // <-- BODY goes here
+              [
+                { text: 'Not now', style: 'cancel' },                              // <-- DECLINE button text
+                { text: 'Turn On', onPress: requestBatteryExemption },             // <-- ACCEPT button text
+              ]
+            );
+          }, 800);
+        }
+        // ===== END editable section =====
+
+        Alert.alert('Checked in', "You're checked in — location tracking is now on for the day.");
+      })(), 30000);
     } catch (e) {
-      Alert.alert('Location unavailable', "Could not get a location fix. Try moving near a window or outdoors, or check that Location mode is set to \"High accuracy\" in your phone's Location settings, then try again.");
+      if (!String(e.message).endsWith('_silent')) {
+        if (e.message === 'timeout') {
+          Alert.alert('Taking too long', "Check-in is taking longer than expected. Please try again — if this keeps happening, restart the app.");
+        } else {
+          Alert.alert('Location unavailable', "Could not get a location fix. Try moving near a window or outdoors, or check that Location mode is set to \"High accuracy\" in your phone's Location settings, then try again.");
+        }
+      }
     }
     setBusy(false);
   }
