@@ -1,7 +1,7 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import './src/locationTask'; // registers the background task at app startup
@@ -32,20 +32,19 @@ function isOlder(a, b) {
 
 export default function App() {
   const [checking, setChecking] = useState(true);
-  const [updateInfo, setUpdateInfo] = useState(null); // { apkUrl, notes } when update required
+  const [updateInfo, setUpdateInfo] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch(VERSION_CHECK_URL, { cache: 'no-store' });
         const data = await res.json();
-        const currentVersion = Constants.expoConfig?.version || '0.0.0';
+        const currentVersion = Application.nativeApplicationVersion || '0.0.0';
+        console.log('TaskFlow version check — installed:', currentVersion, 'latest:', data.latest);
         if (data.latest && isOlder(currentVersion, data.latest)) {
           setUpdateInfo({ apkUrl: data.apk_url, notes: data.notes });
         }
       } catch (e) {
-        // If the version check itself fails (offline, etc.), don't block the app —
-        // fail open so a network hiccup never locks someone out of TaskFlow.
         console.error('Version check failed', e.message);
       }
       setChecking(false);
