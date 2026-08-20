@@ -198,10 +198,12 @@ export default function HomeScreen({ navigation }) {
         // Don't let a stuck background-permission dialog freeze check-in forever —
         // if it takes too long, check-in still succeeds; tracking just won't be on
         // until they reopen the app (which retries automatically).
+        let trackingFailedReason = null;
         try {
           await withTimeout(startTracking(), 15000);
         } catch (trackErr) {
           console.error('Could not start tracking (check-in still succeeded)', trackErr);
+          trackingFailedReason = trackErr?.message || String(trackErr);
         }
 
         await load();
@@ -223,7 +225,14 @@ export default function HomeScreen({ navigation }) {
         }
         // ===== END editable section =====
 
-        Alert.alert('Checked in', "You're checked in — location tracking is now on for the day.");
+        if (trackingFailedReason) {
+          Alert.alert(
+            'Checked in — but tracking did not start',
+            `You're checked in, but location tracking failed to start: ${trackingFailedReason}\n\nPlease check your phone's location permission and battery settings for TaskFlow, then check out and back in.`
+          );
+        } else {
+          Alert.alert('Checked in', "You're checked in — location tracking is now on for the day.");
+        }
       })(), 30000);
     } catch (e) {
       if (!String(e.message).endsWith('_silent')) {
