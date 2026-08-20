@@ -1076,6 +1076,8 @@ async function loadLiveMap(){
       distanceKm += haversineKm(pts[j-1].latitude, pts[j-1].longitude, pts[j].latitude, pts[j].longitude);
     }
 
+    const suspiciousPts = rawPts.filter(p => p.is_suspicious);
+
     // Prefer actual check-in/check-out times over first/last GPS ping, so this matches attendance exactly
     const att = attByName[name];
     const checkIn = att && att.check_in_at ? new Date(att.check_in_at) : new Date(pts[0].recorded_at);
@@ -1093,6 +1095,11 @@ async function loadLiveMap(){
             <span><i class="ti ti-clock"></i> ${activeHrs.toFixed(1)} hrs</span>
             <span><i class="ti ti-map-pin"></i> ${rawPts.length} points logged</span>
           </div>
+          ${suspiciousPts.length ? `
+            <div style="margin-top:6px;font-size:12px;color:#991B1B;background:rgba(220,38,38,0.1);padding:4px 9px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;width:fit-content;font-weight:600;">
+              <i class="ti ti-alert-triangle"></i> Possible spoofed location — ${suspiciousPts.length} point${suspiciousPts.length > 1 ? 's' : ''} moved faster than physically possible (fastest: ${Math.max(...suspiciousPts.map(p => p.speed_kmh || 0)).toFixed(0)} km/h)
+            </div>
+          ` : ''}
           ${stops.length ? `
             <div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">
               ${stops.map(s => `
@@ -1302,7 +1309,7 @@ async function loadDevices(){
 
 async function revokeDevice(deviceRowId, employeeName, deviceName){
   if (!confirm(`Revoke "${deviceName}" for ${employeeName}? They will need a new verification code to use TaskFlow on that phone again.`)) return;
-  const { data, error } = await supabaseClient.functions.invoke('device-auth', {
+  const { data, error } = await supabaseClient.functions.invoke('swift-service', {
     body: { action: 'revoke_device', team: session.team, device_row_id: deviceRowId },
   });
   if (error || !data || !data.ok){
