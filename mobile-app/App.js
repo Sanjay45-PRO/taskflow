@@ -32,7 +32,7 @@ function isOlder(a, b) {
 
 export default function App() {
   const [checking, setChecking] = useState(true);
-  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updateInfo, setUpdateInfo] = useState(null); // { apkUrl, notes } when update required
 
   useEffect(() => {
     (async () => {
@@ -45,6 +45,8 @@ export default function App() {
           setUpdateInfo({ apkUrl: data.apk_url, notes: data.notes });
         }
       } catch (e) {
+        // If the version check itself fails (offline, etc.), don't block the app —
+        // fail open so a network hiccup never locks someone out of TaskFlow.
         console.error('Version check failed', e.message);
       }
       setChecking(false);
